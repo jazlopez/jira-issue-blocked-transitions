@@ -1,0 +1,6 @@
+jira==3.1.1
+click==8.0.3
+click-default-group==1.2.2
+progressbar2==4.0.0
+texttable==1.6.4
+pytz==2023.3.post1
