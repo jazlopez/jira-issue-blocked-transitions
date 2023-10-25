@@ -1,6 +1,5 @@
 # By Jaziel Lopez (github.com/jazlopez)
 # See license file.
-
 from exit_codes import *
 from shutdown import teardown
 from auth import authenticate
@@ -13,8 +12,13 @@ import datetime
 import csv
 import signal
 import logging
+import re
+
+
 from pytz import timezone
 
+def get_pst(input, fmt="%Y-%m-%dT%H:%M:%S.%f%z"):
+    return datetime.datetime.strptime(input, fmt).astimezone(tz=timezone('US/Pacific'))
 
 # ----
 EXPORT_DIRECTORY = os.getenv("EXPORT_DIRECTORY", None)
@@ -50,14 +54,20 @@ LOG_FILE = os.path.join(LOGS_DIRECTORY, ".worklogs_" + NOW + ".log")
 FORMAT = logging.Formatter("%(asctime)s jlopez.mx [%(module)s - %(funcName)s:%(lineno)s] %(levelname)s: %(message)s")
 HANDLER = logging.FileHandler(filename=LOG_FILE)
 HANDLER.setFormatter(FORMAT)
+# -------
+NO_LABELS_EXISTS = "No Labels"
+NO_BUSINESS_VALUE_EXISTS = "No Business Value"
+NO_STORY_POINT_EXISTS = "No Story Points"
+EPIC_LINK_NAME_ERROR = "Epic Link Error"
+EPIC_LINK_NAME_NOT_AVAILABLE = "No Epic Link Name"
+
+# -------
 LOG = logging.getLogger(__name__)
 LOG.addHandler(HANDLER)
 LOG.setLevel(logging.INFO)
 # -------
 display = Texttable()
 
-def get_pst(input, fmt="%Y-%m-%dT%H:%M:%S.%f%z"):
-    return datetime.datetime.strptime(input, fmt).astimezone(tz=timezone('US/Pacific'))
 
 def signal_handler(sign, handler):
 
@@ -72,110 +82,27 @@ def signal_handler(sign, handler):
     LOG.info(f"[INFO] handler {handler}")
     teardown(sign)
 
-def get_export_file_path(filename="report"):
+def get_export_file_path(filename="changelogs"):
 
     location = os.path.join(system_separator, EXPORT_DIRECTORY,
                             f"{filename}-{str(datetime.datetime.now()).replace(' ', '_').replace(':', '.')}.csv")
 
     return location
 
-def time_format(seconds=None):
+def extract_sprint_info(issue=None):
 
-    if seconds:
+    sprint = ""
 
-        seconds = int(seconds)
-        d = seconds // (3600 * 8)
-        h = seconds // 3600 % 8
-        m = seconds % 3600 // 60
-        s = seconds % 3600 % 60
-        if d > 0:
-            return '{days}d {hours}h {minutes}m {secs}s'.format(days=d, hours=h, minutes=m, secs=s)
-        elif h > 0:
-            return '{hours}h {minutes}m {secs}s'.format(hours=h, minutes=m, secs=s)
-        elif m > 0:
-            return '{minutes}m {secs}s'.format(minutes=m, secs=s)
-        elif s > 0:
-            return '{secs}s'.format(secs=s)
+    try:
+        raw = [str(sprint) for sprint in issue.fields.customfield_10760]
+        sprint = re.findall(r"name=[^,]*", raw[-1])[0].split("=")[1]
 
-    return ''
+    except BaseException as e:
+        e_msg = f"Unable to extract sprint info for issue: {issue.key}"
+        LOG.error(e_msg)
 
-# -------
-def close_jira_session(client=None):
+    return sprint
 
-    click.secho(f"[INFO] Closing JIRA session before leaving program...", fg="green")
-    client.kill_session()
-
-
-def get_transitions_by_query(client=None, query=None, location=None):
-    next_page_starts_at = 0
-    count_worklogs = 0
-    available_results = True
-
-    with open(file=location, mode='w') as exported_results:
-
-        # display = Texttable()
-        csv_writer = csv.writer(exported_results, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-
-        # prob. not the best way to handle headers here
-        headers = ["ID", "Blocked At", "Unblocked At", "Total Blocked Time"]
-        csv_writer.writerow(headers)
-
-        # get totals for progress bar
-        click.secho(f"[INFO] Calculating report rows...", fg="green")
-
-        entries = []
-        while available_results:
-            _issues = client.search_issues(jql_str=query, startAt=next_page_starts_at-1,  maxResults=20, expand="Names")
-            available_results = len(_issues) > 0
-            # available_results = 0
-
-            for issue in _issues:
-                changelog = client.issue(id=issue.id, expand='changelog')
-                #
-                for history in changelog.changelog.histories:
-                    for item in history.items:
-                        if item.field == "status":
-                            if item.toString == "Blocked":
-                                entry = {}
-                                unblocked_at = None
-
-                                entry[issue.key] = {}
-
-                                entry[issue.key]["blocked_at"] = get_pst(history.created)
-
-                            if item.fromString == "Blocked":
-
-                                entry[issue.key]["unblocked_at"] = get_pst(history.created)
-                              
-                                entries.append(entry)
-
-                if not unblocked_at:
-                    
-                  try:
-                        entry[issue.key]["unblocked_at"] = ""
-                        entries.append(entry)
-                    except:
-                        continue
-
-                next_page_starts_at = next_page_starts_at + 1
-
-        for i in entries:
-
-            for k in i.keys():
-                issue_id = k
-                break
-
-            for data in i.values():
-
-                data["total_blocked_time"] = "Still Blocked"
-
-                if data["unblocked_at"] != "":
-                    delta = (data["unblocked_at"] - data["blocked_at"]).total_seconds()
-                    data["total_blocked_time"] = time_format(delta)
-
-                csv_writer.writerow([issue_id, data["blocked_at"], data["unblocked_at"], data["total_blocked_time"]])
-
-    click.secho(f"[INFO] Exported results to file {os.path.join(EXPORT_DIRECTORY, os.path.basename(location))}", fg="green")
 
 def time_format(seconds=None):
 
@@ -201,6 +128,106 @@ def time_format(seconds=None):
             return '{secs}s'.format(secs=s)
 
     return ''
+
+
+def close_jira_session(client=None):
+
+    click.secho(f"[INFO] Closing JIRA session before leaving program...", fg="green")
+    client.kill_session()
+
+# -------
+
+
+def write_results_to_file(csv_writer=None, entries=None):
+
+    """
+    :param csv_writer:
+    :param entries:
+    """
+    for i in entries:
+        issue_id = list(i.keys())[0]
+        for data in i.values():
+            data["total_blocked_time"] = "Still Blocked"
+            if data["unblocked_at"] != "":
+                delta = (data["unblocked_at"] - data["blocked_at"]).total_seconds()
+                data["total_blocked_time"] = time_format(delta)
+
+            csv_writer.writerow(
+                [issue_id, data["blocked_at"], data["unblocked_at"], data["total_blocked_time"], data["block_type"],
+                 data['sprint'], data["issue_type"]])
+
+
+def get_transitions_by_query(client=None, query=None, location=None):
+    next_page_starts_at = 0
+    available_results = True
+
+    with open(file=location, mode='w') as exported_results:
+
+        csv_writer = csv.writer(exported_results, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+        headers = ["ID", "Blocked At", "Unblocked At", "Total Blocked Time", "Blocked Type", "Sprint", "Issue Type"]
+        csv_writer.writerow(headers)
+
+        click.secho(f"[INFO] Calculating report rows...", fg="green")
+
+        unblocked_at = None
+        entries = []
+        while available_results:
+            _issues = client.search_issues(jql_str=query, startAt=next_page_starts_at-1,  maxResults=20, expand="Names")
+            available_results = len(_issues) > 0
+
+            for issue in _issues:
+                changelog = client.issue(id=issue.id, expand='changelog,transitions')
+                # for each issue get the changelog histories
+                for history in changelog.changelog.histories:
+                    # each history has more than one action
+                    # like the user has changed the status, the assignee, etc
+                    for item in history.items:
+
+                        if item.field == "status":      # the user has changed the status
+
+                            # if the status has changed to "Blocked"
+                            # then we get the date of the change
+                            if item.toString == "Blocked":
+
+                                unblocked_at = None
+
+                                entry = {issue.key: {}}
+                                blocked_at = history.created
+
+                                entry[issue.key]["blocked_at"] = get_pst(blocked_at)
+                                entry[issue.key]['sprint'] = extract_sprint_info(issue=issue)
+
+                            elif item.fromString == "Blocked":
+                                unblocked_at = history.created
+                                entry[issue.key]["unblocked_at"] = get_pst(unblocked_at)
+                                entry[issue.key]["block_type"] = blocked_type
+                                entry[issue.key]["issue_type"] = issue.fields.issuetype.name
+                                entries.append(entry)
+                        # end if item.field == "status"
+                        elif item.field == "Block Type":
+                            blocked_type = item.toString
+                        else:
+                            continue
+                    # end for item in history.items
+                # end for history in changelog.changelog.histories
+                if not unblocked_at:
+                    try:
+                        entry[issue.key]["unblocked_at"] = ""
+                        entry[issue.key]["block_type"] = blocked_type
+                        entry[issue.key]["issue_type"] = issue.fields.issuetype.name
+                        entries.append(entry)
+                    except:
+                        LOG.error(f"Unable to write entry for issue: {issue.key}")
+                # end if not unblocked_at
+                next_page_starts_at = next_page_starts_at + 1
+            # end for issue in _issues
+        # end while available_results
+        # write results to file
+        write_results_to_file(csv_writer=csv_writer, entries=entries)
+
+    click.secho(f"[INFO] Exported results to file {os.path.join(EXPORT_DIRECTORY, os.path.basename(location))}", fg="green")
+
 
 def query_jira_by_file(client=None, jql=None):
     try:
