@@ -30,23 +30,26 @@ if not EXPORT_DIRECTORY:
     teardown(EXIT_ENVIRONMENT_EXPORT_DIRECTORY_ERROR_CODE)
 
 if not os.path.exists(EXPORT_DIRECTORY) :
-    click.secho(f"EXPORT_DIRECTORY: {EXPORT_DIRECTORY} is declared but it is not created. Unable to continue. "
-                f"Will exit now")
-    teardown(EXIT_EXPORT_DIRECTORY_ERROR_CODE)
+    click.secho(f"EXPORT_DIRECTORY: {EXPORT_DIRECTORY} is declared but it is not created. Attempting to create {EXPORT_DIRECTORY}.")
+
+    try:
+        os.mkdir(EXPORT_DIRECTORY)
+    except:
+        click.secho(f"Unable to create {EXPORT_DIRECTORY}. Will exit now")
+        teardown(EXIT_EXPORT_DIRECTORY_ERROR_CODE)
 
 if not LOGS_DIRECTORY:
     click.secho("Environment variable: LOGS_DIRECTORY is not set. Unable to continue. Will exit now")
     teardown(EXIT_ENVIRONMENT_LOGS_DIRECTORY_ERROR_CODE)
 
 if not os.path.exists(LOGS_DIRECTORY) :
-    click.secho(f"LOGS_DIRECTORY: {LOGS_DIRECTORY} is declared but it is not created. Unable to continue. "
-                f"Will exit now")
-    teardown(EXIT_LOGS_DIRECTORY_ERROR_CODE)
+    click.secho(f"LOGS_DIRECTORY: {LOGS_DIRECTORY} is declared but it is not created. Attempting to create {LOGS_DIRECTORY}. ")
 
-
-if not LOGS_DIRECTORY:
-    click.secho("Environment variable: LOGS_DIRECTORY is not set. Unable to continue. Will exit now")
-    teardown(EXIT_DIRECTORIES_MISSING_CODE)
+    try:
+        os.mkdir(LOGS_DIRECTORY)
+    except:
+        click.secho(f"Unable to create {LOGS_DIRECTORY}. Will exit now")
+        teardown(EXIT_LOGS_DIRECTORY_ERROR_CODE)
 
 # -------
 NOW = datetime.datetime.now().strftime("_%Y_%m_%d-%H_%M")
