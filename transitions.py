@@ -21,8 +21,9 @@ def get_pst(input, fmt="%Y-%m-%dT%H:%M:%S.%f%z"):
     return datetime.datetime.strptime(input, fmt).astimezone(tz=timezone('US/Pacific'))
 
 # ----
-EXPORT_DIRECTORY = os.getenv("EXPORT_DIRECTORY", None)
-LOGS_DIRECTORY = os.getenv("LOGS_DIRECTORY", None)
+# ----
+EXPORT_DIRECTORY = os.getenv("EXPORT_DIRECTORY", os.path.join(os.getcwd(), "exports"))
+LOGS_DIRECTORY = os.getenv("LOGS_DIRECTORY", os.path.join(os.getcwd(), "logs"))
 JQL_QUERY_FILENAME = os.getenv("JQL_QUERY_FILENAME", "jql.jql")
 
 if not EXPORT_DIRECTORY:
